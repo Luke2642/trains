@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TfL Journey Planner</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            margin: 2em;
+            background-color: #f4f4f4;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background-color: #fff;
+            box-shadow: 0 2px 3px rgba(0,0,0,0.1);
+        }
+        th, td {
+            padding: 12px 15px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        thead tr {
+            font-weight: bold;
+        }
+        tbody tr:nth-of-type(even) {
+            background-color: #f9f9f9;
+        }
+        .error-message {
+            text-align: center;
+            color: #d9534f;
+            font-style: italic;
+        }
+        /* Added a small gap for the second table */
+        .journey-table-container + .journey-table-container {
+            margin-top: 2em;
+        }
+    </style>
+</head>
+<body>
+    
+    <div id="table-container">
+        </div>
+
+    <script>
+        async function getJourney(from, to, departureTime = null) {
+            let url = `https://api.tfl.gov.uk/Journey/JourneyResults/${from}/to/${to}`;
+            if (departureTime) {
+                url += `?time=${departureTime}&timeIs=Departing`;
+            }
+            const response = await fetch(url);
+            if (!response.ok) {
+                console.error(`API request failed with status: ${response.status}`);
+                return null;
+            }
+            return await response.json();
+        }
+
+        function formatTime(isoDate) {
+            if (!isoDate) return 'N/A';
+            const date = new Date(isoDate);
+            return date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+        }
+        
+        function formatTimeForApi(isoDate) {
+            const date = new Date(isoDate);
+            const hours = String(date.getHours()).padStart(2, '0');
+            const minutes = String(date.getMinutes()).padStart(2, '0');
+            return `${hours}${minutes}`;
+        }
+
+        /**
+         * Creates a new table structure for a journey option.
+         * @param {string} bodyId - The ID to assign to the new table's tbody element.
+         * @param {object} [firstLegJourney=null] - Optional. The first journey leg to calculate header time from.
+         * @param {string} [finalArrivalTime=null] - Optional. The final arrival time for the entire journey.
+         * @returns {HTMLElement} The created tbody element.
+         */
+        function createJourneyTable(bodyId, firstLegJourney = null, finalArrivalTime = null) {
+            const container = document.getElementById('table-container');
+            const tableWrapper = document.createElement('div');
+            tableWrapper.className = 'journey-table-container';
+
+            const table = document.createElement('table');
+            const thead = document.createElement('thead');
+            const tbody = document.createElement('tbody');
+            
+            tbody.id = bodyId;
+            
+            let firstHeader = ''; // Default empty header
+            if (firstLegJourney) {
+                const now = new Date();
+                const departureTime = new Date(firstLegJourney.startDateTime);
+                const diffMs = departureTime - now;
+                const diffMins = Math.ceil(diffMs / 60000); // Round up to the nearest minute
+                const arrivingPart = finalArrivalTime ? ` ${formatTime(finalArrivalTime)}` : '';
+                firstHeader = `${diffMins} mins walk, arriving Edgware${arrivingPart}`;
+            }
+
+            const headerRow = document.createElement('tr');
+            headerRow.innerHTML = `
+                <th>${firstHeader}</th> 
+                <th>Departs</th>
+                <th>ETA</th>
+            `;
+            thead.appendChild(headerRow);
+            table.appendChild(thead);
+            table.appendChild(tbody);
+            tableWrapper.appendChild(table)
+            container.appendChild(tableWrapper);
+
+            return tbody;
+        }
+
+        async function planSingleJourney(firstLegJourney) {
+            const legs = [
+                { from: '910GSYDENHM', to: '940GZZLUCWR', fromName: 'Sydenham', toName: 'Canada Water' },
+                { from: '940GZZLUCWR', to: '940GZZLUBST', fromName: 'Canada Water', toName: 'Baker Street' },
+                { from: '940GZZLUBST', to: '940GZZLUERB', fromName: 'Baker Street', toName: 'Edgware Road (Bakerloo)' }
+            ];
+
+            const plannedLegs = [];
+            let earliestArrivalTime = firstLegJourney.arrivalDateTime;
+
+            plannedLegs.push({
+                fromName: legs[0].fromName,
+                toName: legs[0].toName,
+                startDateTime: firstLegJourney.startDateTime,
+                arrivalDateTime: firstLegJourney.arrivalDateTime,
+                error: null
+            });
+
+            for (let i = 1; i < legs.length; i++) {
+                const leg = legs[i];
+                const departureTimeForApi = formatTimeForApi(earliestArrivalTime);
+                const journeyData = await getJourney(leg.from, leg.to, departureTimeForApi);
+
+                if (journeyData && journeyData.journeys && journeyData.journeys.length > 0) {
+                    const earliestJourney = journeyData.journeys.reduce((earliest, current) => {
+                        return new Date(current.arrivalDateTime) < new Date(earliest.arrivalDateTime) ? current : earliest;
+                    });
+                    
+                    earliestArrivalTime = earliestJourney.arrivalDateTime;
+                    
+                    plannedLegs.push({
+                        fromName: leg.fromName,
+                        toName: leg.toName,
+                        startDateTime: earliestJourney.startDateTime,
+                        arrivalDateTime: earliestJourney.arrivalDateTime,
+                        error: null
+                    });
+                } else {
+                    plannedLegs.push({
+                        fromName: leg.fromName,
+                        toName: leg.toName,
+                        error: `No connecting journey found from ${leg.fromName}.`
+                    });
+                    break; 
+                }
+            }
+            
+            return {
+                legs: plannedLegs,
+                finalArrivalTime: earliestArrivalTime
+            };
+        }
+
+        function displaySingleJourney(tableBody, plannedJourney) {
+            plannedJourney.legs.forEach(leg => {
+                const row = tableBody.insertRow();
+                if (leg.error) {
+                    const errorCell = row.insertCell(0);
+                    errorCell.colSpan = 3;
+                    errorCell.className = 'error-message';
+                    errorCell.textContent = leg.error;
+                } else {
+                    row.insertCell(0).textContent = `${leg.fromName} → ${leg.toName}`;
+                    row.insertCell(1).textContent = formatTime(leg.startDateTime);
+                    row.insertCell(2).textContent = formatTime(leg.arrivalDateTime);
+                }
+            });
+        }
+        
+        async function displayJourneys() {
+            const now = new Date();
+            const departureTime = new Date(now.getTime() + 10 * 60000);
+            const departureTimeForApi = formatTimeForApi(departureTime);
+
+            const firstLeg = { from: '910GSYDENHM', to: '940GZZLUCWR' };
+            const initialJourneyData = await getJourney(firstLeg.from, firstLeg.to, departureTimeForApi);
+
+            if (initialJourneyData && initialJourneyData.journeys && initialJourneyData.journeys.length > 0) {
+                const sortedJourneys = initialJourneyData.journeys.sort((a, b) => new Date(a.startDateTime) - new Date(b.startDateTime));
+                
+                // Plan and display the first option
+                const firstPlannedJourney = await planSingleJourney(sortedJourneys[0]);
+                const firstTableBody = createJourneyTable('journeys-body-1', sortedJourneys[0], firstPlannedJourney.finalArrivalTime);
+                displaySingleJourney(firstTableBody, firstPlannedJourney);
+
+                // Plan and display the second option if it exists
+                if (sortedJourneys.length > 1) {
+                    const secondPlannedJourney = await planSingleJourney(sortedJourneys[1]);
+                    const secondTableBody = createJourneyTable('journeys-body-2', sortedJourneys[1], secondPlannedJourney.finalArrivalTime);
+                    displaySingleJourney(secondTableBody, secondPlannedJourney);
+                }
+            } else {
+                // Display an error if no initial trains are found
+                const tableBody = createJourneyTable('journeys-body-error');
+                const row = tableBody.insertRow();
+                const errorCell = row.insertCell(0);
+                errorCell.colSpan = 3;
+                errorCell.className = 'error-message';
+                errorCell.textContent = `No journeys found from Sydenham departing after ${formatTime(departureTime)}.`;
+            }
+        }
+
+        displayJourneys();
+    </script>
+
+</body>
+</html>
