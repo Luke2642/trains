@@ -25,14 +25,13 @@
             font-weight: bold;
         }
         tbody tr:nth-of-type(even) {
-            background-color: #f9f9f9;
+            background-color: rgba(0,0,0,0.02);
         }
         .error-message {
             text-align: center;
             color: #d9534f;
             font-style: italic;
         }
-        /* Added a small gap for the second table */
         .journey-table-container + .journey-table-container {
             margin-top: 2em;
         }
@@ -71,7 +70,7 @@
         }
 
         /**
-         * Creates a new table structure for a journey option.
+         * Creates a table structure for a journey option.
          * @param {string} bodyId - The ID to assign to the new table's tbody element.
          * @param {object} [firstLegJourney=null] - Optional. The first journey leg to calculate header time from.
          * @param {string} [finalArrivalTime=null] - Optional. The final arrival time for the entire journey.
@@ -94,6 +93,15 @@
                 const departureTime = new Date(firstLegJourney.startDateTime);
                 const diffMs = departureTime - now;
                 const diffMins = Math.ceil(diffMs / 60000); // Round up to the nearest minute
+
+                if (diffMins < 10) {
+                    table.style.backgroundColor = '#FFF0F0';
+                } else if (diffMins < 15) {
+                    table.style.backgroundColor = '#FFFFF0';
+                } else {
+                    table.style.backgroundColor = '#F0FFF0';
+                }
+                
                 const arrivingPart = finalArrivalTime ? ` ${formatTime(finalArrivalTime)}` : '';
                 firstHeader = `${diffMins} mins walk, arriving Edgware${arrivingPart}`;
             }
@@ -184,8 +192,7 @@
         
         async function displayJourneys() {
             const now = new Date();
-            const departureTime = new Date(now.getTime() + 10 * 60000);
-            const departureTimeForApi = formatTimeForApi(departureTime);
+            const departureTimeForApi = formatTimeForApi(now);
 
             const firstLeg = { from: '910GSYDENHM', to: '940GZZLUCWR' };
             const initialJourneyData = await getJourney(firstLeg.from, firstLeg.to, departureTimeForApi);
@@ -193,25 +200,22 @@
             if (initialJourneyData && initialJourneyData.journeys && initialJourneyData.journeys.length > 0) {
                 const sortedJourneys = initialJourneyData.journeys.sort((a, b) => new Date(a.startDateTime) - new Date(b.startDateTime));
                 
-                // Plan and display the first option
-                const firstPlannedJourney = await planSingleJourney(sortedJourneys[0]);
-                const firstTableBody = createJourneyTable('journeys-body-1', sortedJourneys[0], firstPlannedJourney.finalArrivalTime);
-                displaySingleJourney(firstTableBody, firstPlannedJourney);
+                const journeysToShow = sortedJourneys.slice(0, 3);
 
-                // Plan and display the second option if it exists
-                if (sortedJourneys.length > 1) {
-                    const secondPlannedJourney = await planSingleJourney(sortedJourneys[1]);
-                    const secondTableBody = createJourneyTable('journeys-body-2', sortedJourneys[1], secondPlannedJourney.finalArrivalTime);
-                    displaySingleJourney(secondTableBody, secondPlannedJourney);
+                for (let i = 0; i < journeysToShow.length; i++) {
+                    const journeyLeg = journeysToShow[i];
+                    const plannedJourney = await planSingleJourney(journeyLeg);
+                    const tableBody = createJourneyTable(`journeys-body-${i + 1}`, journeyLeg, plannedJourney.finalArrivalTime);
+                    displaySingleJourney(tableBody, plannedJourney);
                 }
             } else {
-                // Display an error if no initial trains are found
+                // Error
                 const tableBody = createJourneyTable('journeys-body-error');
                 const row = tableBody.insertRow();
                 const errorCell = row.insertCell(0);
                 errorCell.colSpan = 3;
                 errorCell.className = 'error-message';
-                errorCell.textContent = `No journeys found from Sydenham departing after ${formatTime(departureTime)}.`;
+                errorCell.textContent = `No journeys found from Sydenham.`;
             }
         }
 
