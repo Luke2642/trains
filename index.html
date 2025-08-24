@@ -7,8 +7,8 @@
     <style>
         body {
             font-family: sans-serif;
-            margin: 2em;
-            background-color: #f4f4f4;
+            background-color: #fff;
+            margin: 0px;
         }
         table {
             width: 100%;
@@ -19,7 +19,6 @@
         th, td {
             padding: 12px 15px;
             text-align: left;
-            border-bottom: 1px solid #ddd;
         }
         thead tr {
             font-weight: bold;
@@ -35,80 +34,123 @@
         .journey-table-container + .journey-table-container {
             margin-top: 2em;
         }
+        .tabs {
+            overflow: hidden;
+        }
+        .tab-link {
+            float: left;
+            border: 1px solid #ccc;
+            outline: none;
+            cursor: pointer;
+            padding: 14px 16px;
+            transition: 0.3s;
+            font-size: 17px;
+            border-radius: 5px 5px 0 0;
+            margin-top: 4px;
+            margin-left: 4px;
+            margin-right: 4px;
+            background: linear-gradient(to bottom, #f0f0f0, #e0e0e0);
+        }
+        .tab-link:hover {
+            background: #f0f0f0;
+        }
+        .tab-link.active {
+            background: #f0f0ff;
+            font-weight: bold;
+            border: 0px;
+            border-bottom: 2px solid #f0f0ff;
+            margin-bottom: -1px;
+            position: relative;
+            z-index: 1;
+        }
+        .tab-content {
+            display: none;
+            background-color: #f0f0ff;
+            padding: 0.5em;
+            clear: both;
+        }
     </style>
 </head>
 <body>
-    
-    <div id="table-container">
-        </div>
 
+    <div class="tabs">
+        <button class="tab-link active" onclick="openTab(event, 'Sydenham')">Sydenham</button>
+        <button class="tab-link" onclick="openTab(event, 'CanadaWater')">Canada Water</button>
+        <button class="tab-link" onclick="openTab(event, 'BakerStreet')">Baker Street</button>
+    </div>
+    <div id="Sydenham" class="tab-content">
+        <div id="sydenham-table-container"></div>
+    </div>
+    <div id="CanadaWater" class="tab-content">
+        <div id="canadawater-table-container"></div>
+    </div>
+    <div id="BakerStreet" class="tab-content">
+        <div id="bakerstreet-table-container"></div>
+    </div>
     <script>
+        // --- API and Formatting Helpers ---
         async function getJourney(from, to, departureTime = null) {
             let url = `https://api.tfl.gov.uk/Journey/JourneyResults/${from}/to/${to}`;
-            if (departureTime) {
-                url += `?time=${departureTime}&timeIs=Departing`;
-            }
-            const response = await fetch(url);
-            if (!response.ok) {
-                console.error(`API request failed with status: ${response.status}`);
+
+            // Use the provided departureTime for connections, or the current time for initial journeys.
+            const timeForApi = departureTime ? departureTime : formatTimeForApi(new Date());
+            url += `?time=${timeForApi}&timeIs=Departing`;
+
+            try {
+                const response = await fetch(url);
+                if (!response.ok) {
+                    console.error(`API request failed with status: ${response.status}`);
+                    return null;
+                }
+                return await response.json();
+            } catch (error) {
+                console.error("Failed to fetch journey data:", error);
                 return null;
             }
-            return await response.json();
         }
-
         function formatTime(isoDate) {
             if (!isoDate) return 'N/A';
             const date = new Date(isoDate);
             return date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
         }
-        
+
         function formatTimeForApi(isoDate) {
             const date = new Date(isoDate);
             const hours = String(date.getHours()).padStart(2, '0');
             const minutes = String(date.getMinutes()).padStart(2, '0');
             return `${hours}${minutes}`;
         }
-
-        /**
-         * Creates a table structure for a journey option.
-         * @param {string} bodyId - The ID to assign to the new table's tbody element.
-         * @param {object} [firstLegJourney=null] - Optional. The first journey leg to calculate header time from.
-         * @param {string} [finalArrivalTime=null] - Optional. The final arrival time for the entire journey.
-         * @returns {HTMLElement} The created tbody element.
-         */
-        function createJourneyTable(bodyId, firstLegJourney = null, finalArrivalTime = null) {
-            const container = document.getElementById('table-container');
+        // --- UI Creation ---
+        function createJourneyTable(container, bodyId, headerText, diffMins, colorLogicType) {
             const tableWrapper = document.createElement('div');
             tableWrapper.className = 'journey-table-container';
-
             const table = document.createElement('table');
             const thead = document.createElement('thead');
             const tbody = document.createElement('tbody');
-            
-            tbody.id = bodyId;
-            
-            let firstHeader = ''; // Default empty header
-            if (firstLegJourney) {
-                const now = new Date();
-                const departureTime = new Date(firstLegJourney.startDateTime);
-                const diffMs = departureTime - now;
-                const diffMins = Math.ceil(diffMs / 60000); // Round up to the nearest minute
 
-                if (diffMins < 10) {
+            tbody.id = bodyId;
+
+            if (colorLogicType === 'sydenham') {
+                 if (diffMins < 10) {
                     table.style.backgroundColor = '#FFF0F0';
                 } else if (diffMins < 15) {
                     table.style.backgroundColor = '#FFFFF0';
                 } else {
                     table.style.backgroundColor = '#F0FFF0';
                 }
-                
-                const arrivingPart = finalArrivalTime ? ` ${formatTime(finalArrivalTime)}` : '';
-                firstHeader = `${diffMins} mins walk, arriving Edgware${arrivingPart}`;
+            } else { // 'enroute' for Canada Water & Baker Street
+                if (diffMins < 2) {
+                    table.style.backgroundColor = '#FFF0F0';
+                } else if (diffMins < 3) {
+                    table.style.backgroundColor = '#FFFFF0';
+                } else {
+                    table.style.backgroundColor = '#F0FFF0';
+                }
             }
 
             const headerRow = document.createElement('tr');
             headerRow.innerHTML = `
-                <th>${firstHeader}</th> 
+                <th>${headerText}</th>
                 <th>Departs</th>
                 <th>ETA</th>
             `;
@@ -117,64 +159,9 @@
             table.appendChild(tbody);
             tableWrapper.appendChild(table)
             container.appendChild(tableWrapper);
-
             return tbody;
         }
-
-        async function planSingleJourney(firstLegJourney) {
-            const legs = [
-                { from: '910GSYDENHM', to: '940GZZLUCWR', fromName: 'Sydenham', toName: 'Canada Water' },
-                { from: '940GZZLUCWR', to: '940GZZLUBST', fromName: 'Canada Water', toName: 'Baker Street' },
-                { from: '940GZZLUBST', to: '940GZZLUERB', fromName: 'Baker Street', toName: 'Edgware Road (Bakerloo)' }
-            ];
-
-            const plannedLegs = [];
-            let earliestArrivalTime = firstLegJourney.arrivalDateTime;
-
-            plannedLegs.push({
-                fromName: legs[0].fromName,
-                toName: legs[0].toName,
-                startDateTime: firstLegJourney.startDateTime,
-                arrivalDateTime: firstLegJourney.arrivalDateTime,
-                error: null
-            });
-
-            for (let i = 1; i < legs.length; i++) {
-                const leg = legs[i];
-                const departureTimeForApi = formatTimeForApi(earliestArrivalTime);
-                const journeyData = await getJourney(leg.from, leg.to, departureTimeForApi);
-
-                if (journeyData && journeyData.journeys && journeyData.journeys.length > 0) {
-                    const earliestJourney = journeyData.journeys.reduce((earliest, current) => {
-                        return new Date(current.arrivalDateTime) < new Date(earliest.arrivalDateTime) ? current : earliest;
-                    });
-                    
-                    earliestArrivalTime = earliestJourney.arrivalDateTime;
-                    
-                    plannedLegs.push({
-                        fromName: leg.fromName,
-                        toName: leg.toName,
-                        startDateTime: earliestJourney.startDateTime,
-                        arrivalDateTime: earliestJourney.arrivalDateTime,
-                        error: null
-                    });
-                } else {
-                    plannedLegs.push({
-                        fromName: leg.fromName,
-                        toName: leg.toName,
-                        error: `No connecting journey found from ${leg.fromName}.`
-                    });
-                    break; 
-                }
-            }
-            
-            return {
-                legs: plannedLegs,
-                finalArrivalTime: earliestArrivalTime
-            };
-        }
-
-        function displaySingleJourney(tableBody, plannedJourney) {
+        function displayPlannedJourney(tableBody, plannedJourney) {
             plannedJourney.legs.forEach(leg => {
                 const row = tableBody.insertRow();
                 if (leg.error) {
@@ -189,38 +176,176 @@
                 }
             });
         }
-        
-        async function displayJourneys() {
-            const now = new Date();
-            const departureTimeForApi = formatTimeForApi(now);
 
-            const firstLeg = { from: '910GSYDENHM', to: '940GZZLUCWR' };
-            const initialJourneyData = await getJourney(firstLeg.from, firstLeg.to, departureTimeForApi);
+        function displayError(container, message) {
+            container.innerHTML = '';
+            const tempContainer = document.createDocumentFragment();
+            const tableBody = createJourneyTable(tempContainer, 'error-body', '', 0, '');
+            const row = tableBody.insertRow();
+            const errorCell = row.insertCell(0);
+            errorCell.colSpan = 3;
+            errorCell.className = 'error-message';
+            errorCell.textContent = message;
+            container.appendChild(tempContainer.firstElementChild);
+        }
+        // --- Journey Planning Logic ---
+        async function planRemainingJourney(firstLegJourney, remainingLegs) {
+            const plannedLegs = [firstLegJourney];
+            let earliestArrivalTime = firstLegJourney.arrivalDateTime;
+            let finalArrivalTime = earliestArrivalTime;
+            for (const leg of remainingLegs) {
+                const departureTimeForApi = formatTimeForApi(earliestArrivalTime);
+                const journeyData = await getJourney(leg.from, leg.to, departureTimeForApi);
+                if (journeyData && journeyData.journeys && journeyData.journeys.length > 0) {
+                    // The API returns sorted journeys, so the first one is the earliest connection.
+                    const earliestConnection = journeyData.journeys[0];
+                    earliestArrivalTime = earliestConnection.arrivalDateTime;
+                    finalArrivalTime = earliestConnection.arrivalDateTime;
 
-            if (initialJourneyData && initialJourneyData.journeys && initialJourneyData.journeys.length > 0) {
-                const sortedJourneys = initialJourneyData.journeys.sort((a, b) => new Date(a.startDateTime) - new Date(b.startDateTime));
-                
-                const journeysToShow = sortedJourneys.slice(0, 3);
-
-                for (let i = 0; i < journeysToShow.length; i++) {
-                    const journeyLeg = journeysToShow[i];
-                    const plannedJourney = await planSingleJourney(journeyLeg);
-                    const tableBody = createJourneyTable(`journeys-body-${i + 1}`, journeyLeg, plannedJourney.finalArrivalTime);
-                    displaySingleJourney(tableBody, plannedJourney);
+                    plannedLegs.push({
+                        fromName: leg.fromName,
+                        toName: leg.toName,
+                        startDateTime: earliestConnection.startDateTime,
+                        arrivalDateTime: earliestConnection.arrivalDateTime,
+                        error: null
+                    });
+                } else {
+                    plannedLegs.push({
+                        fromName: leg.fromName,
+                        toName: leg.toName,
+                        error: `No connecting journey found from ${leg.fromName}.`
+                    });
+                    finalArrivalTime = null;
+                    break;
                 }
+            }
+
+            return { legs: plannedLegs, finalArrivalTime };
+        }
+
+        const filterFutureJourneys = (journeys) => {
+            if (!journeys || !journeys.length) return [];
+            const now = new Date();
+            return journeys.filter(j => new Date(j.startDateTime) > now);
+        };
+        // --- Tab Display Functions ---
+        async function updateSydenhamJourneys() {
+            const container = document.getElementById('sydenham-table-container');
+            const tempContainer = document.createDocumentFragment();
+            const legs = [
+                { from: '910GSYDENHM', to: '940GZZLUCWR', fromName: 'Sydenham', toName: 'Canada Water' },
+                { from: '940GZZLUCWR', to: '940GZZLUBST', fromName: 'Canada Water', toName: 'Baker Street' },
+                { from: '940GZZLUBST', to: '940GZZLUERB', fromName: 'Baker Street', toName: 'Edgware Road (Bakerloo)' }
+            ];
+            const initialJourneyData = await getJourney(legs[0].from, legs[0].to);
+            const futureJourneys = filterFutureJourneys(initialJourneyData?.journeys);
+            if (futureJourneys.length > 0) {
+                const journeysToShow = futureJourneys.slice(0, 3);
+                for (const [i, firstLegData] of journeysToShow.entries()) {
+                    const firstLeg = { fromName: legs[0].fromName, toName: legs[0].toName, startDateTime: firstLegData.startDateTime, arrivalDateTime: firstLegData.arrivalDateTime, error: null };
+                    const plannedJourney = await planRemainingJourney(firstLeg, legs.slice(1));
+
+                    const diffMins = Math.ceil((new Date(firstLegData.startDateTime) - new Date()) / 60000);
+                    const arrivingPart = plannedJourney.finalArrivalTime ? ` arriving ${formatTime(plannedJourney.finalArrivalTime)}` : '';
+                    const headerText = `${diffMins} mins walk, arriving Edgware${arrivingPart}`;
+                    const tableBody = createJourneyTable(tempContainer, `sydenham-body-${i}`, headerText, diffMins, 'sydenham');
+                    displayPlannedJourney(tableBody, plannedJourney);
+                }
+                container.innerHTML = '';
+                container.appendChild(tempContainer);
             } else {
-                // Error
-                const tableBody = createJourneyTable('journeys-body-error');
-                const row = tableBody.insertRow();
-                const errorCell = row.insertCell(0);
-                errorCell.colSpan = 3;
-                errorCell.className = 'error-message';
-                errorCell.textContent = `No journeys found from Sydenham.`;
+                displayError(container, 'No future journeys found from Sydenham.');
+            }
+        }
+        async function updateCanadaWaterJourneys() {
+            const container = document.getElementById('canadawater-table-container');
+            const tempContainer = document.createDocumentFragment();
+            const legs = [
+                { from: '940GZZLUCWR', to: '940GZZLUBST', fromName: 'Canada Water', toName: 'Baker Street' },
+                { from: '940GZZLUBST', to: '940GZZLUERB', fromName: 'Baker Street', toName: 'Edgware Road (Bakerloo)' }
+            ];
+            const initialJourneyData = await getJourney(legs[0].from, legs[0].to);
+            const futureJourneys = filterFutureJourneys(initialJourneyData?.journeys);
+            if (futureJourneys.length > 0) {
+                const journeysToShow = futureJourneys.slice(0, 3);
+                for (const [i, firstLegData] of journeysToShow.entries()) {
+                    const firstLeg = { fromName: legs[0].fromName, toName: legs[0].toName, startDateTime: firstLegData.startDateTime, arrivalDateTime: firstLegData.arrivalDateTime, error: null };
+                    const plannedJourney = await planRemainingJourney(firstLeg, legs.slice(1));
+
+                    const diffMins = Math.floor((new Date(firstLegData.startDateTime) - new Date()) / 60000);
+                    const arrivingPart = plannedJourney.finalArrivalTime ? ` arriving ${formatTime(plannedJourney.finalArrivalTime)}` : '';
+                    const headerText = `Departs in ${diffMins} mins, arriving Edgware${arrivingPart}`;
+
+                    const tableBody = createJourneyTable(tempContainer, `canadawater-body-${i}`, headerText, diffMins, 'enroute');
+                    displayPlannedJourney(tableBody, plannedJourney);
+                }
+                container.innerHTML = '';
+                container.appendChild(tempContainer);
+            } else {
+                displayError(container, 'No future journeys found from Canada Water.');
+            }
+        }
+        async function updateBakerStreetJourneys() {
+            const container = document.getElementById('bakerstreet-table-container');
+            const tempContainer = document.createDocumentFragment();
+            const from = '940GZZLUBST', to = '940GZZLUERB';
+            const fromName = 'Baker Street', toName = 'Edgware Road (Bakerloo)';
+            const journeyData = await getJourney(from, to);
+            const futureJourneys = filterFutureJourneys(journeyData?.journeys);
+            if (futureJourneys.length > 0) {
+                const journeysToShow = futureJourneys.slice(0, 3);
+                for (const [i, journey] of journeysToShow.entries()) {
+                    const diffMins = Math.floor((new Date(journey.startDateTime) - new Date()) / 60000);
+                    const headerText = `Departs in ${diffMins} mins, arriving ${formatTime(journey.arrivalDateTime)}`;
+                    const tableBody = createJourneyTable(tempContainer, `bakerstreet-body-${i}`, headerText, diffMins, 'enroute');
+                    const plannedJourney = { legs: [{ fromName, toName, startDateTime: journey.startDateTime, arrivalDateTime: journey.arrivalDateTime, error: null }] };
+                    displayPlannedJourney(tableBody, plannedJourney);
+                }
+                container.innerHTML = '';
+                container.appendChild(tempContainer);
+            } else {
+                 displayError(container, 'No future journeys found from Baker Street.');
             }
         }
 
-        displayJourneys();
-    </script>
+        // --- Data Refresh and Tab Control ---
+        async function refreshAllData() {
+            console.log("Refreshing all journey data at", new Date().toLocaleTimeString());
+            await Promise.all([
+                updateSydenhamJourneys(),
+                updateCanadaWaterJourneys(),
+                updateBakerStreetJourneys()
+            ]);
+        }
+        function setupRefreshTimer() {
+            let lastRefreshSecond = -1;
+            setInterval(() => {
+                const seconds = new Date().getSeconds();
+                if ((seconds === 2 || seconds === 17 || seconds === 32 || seconds === 47) && seconds !== lastRefreshSecond) {
+                    lastRefreshSecond = seconds;
+                    refreshAllData();
+                }
+            }, 1000); // Check every second
+        }
+        function openTab(evt, tabName) {
+            const tabContents = document.getElementsByClassName("tab-content");
+            for (let i = 0; i < tabContents.length; i++) {
+                tabContents[i].style.display = "none";
+            }
+            const tabLinks = document.getElementsByClassName("tab-link");
+            for (let i = 0; i < tabLinks.length; i++) {
+                tabLinks[i].className = tabLinks[i].className.replace(" active", "");
+            }
+            document.getElementById(tabName).style.display = "block";
+            evt.currentTarget.className += " active";
+        }
+        // --- Initial Load ---
 
+        document.addEventListener('DOMContentLoaded', () => {
+             document.querySelector('.tab-link.active').click();
+             refreshAllData();
+             setupRefreshTimer();
+        });
+    </script>
 </body>
 </html>
